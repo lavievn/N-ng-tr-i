@@ -1,0 +1,51 @@
+name: Import zfarm26 assets
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download archive
+        env:
+          FILE_ID: 1b692rBFh5HZ8hTyjmVNW33VM3uOQtDLE
+        run: |
+          python -m pip install --quiet gdown
+          gdown --id "$FILE_ID" -O /tmp/zfarm26.zip
+          unzip -t /tmp/zfarm26.zip
+      - name: Extract safely and preserve paths
+        run: |
+          python - <<'PY'
+          import zipfile, pathlib, shutil
+          root=pathlib.Path.cwd().resolve()
+          with zipfile.ZipFile('/tmp/zfarm26.zip') as z:
+              files=[i for i in z.infolist() if not i.is_dir()]
+              for i in files:
+                  p=pathlib.PurePosixPath(i.filename)
+                  if p.is_absolute() or '..' in p.parts or '\\' in i.filename:
+                      raise ValueError('Unsafe archive path: '+i.filename)
+                  target=(root / p).resolve()
+                  if not target.is_relative_to(root):
+                      raise ValueError('Outside repo: '+i.filename)
+                  if target.exists():
+                      raise FileExistsError('Refusing to overwrite: '+str(p))
+              for i in files:
+                  target=root / pathlib.PurePosixPath(i.filename)
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  with z.open(i) as src, target.open('wb') as dst:
+                      shutil.copyfileobj(src,dst)
+          print('Extracted',len(files),'files')
+          PY
+      - name: Commit imported assets
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add --all
+          if git diff --cached --quiet; then
+            echo "No new files"
+            exit 0
+          fi
+          git commit -m "Import zfarm26 assets from Drive"
+          git push
